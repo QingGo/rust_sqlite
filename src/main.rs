@@ -11,42 +11,27 @@ fn main() -> Result<(), String> {
         buf = buf.trim().to_string();
         // execute meta command
         if buf.len() > 0 && buf.chars().nth(0).unwrap() == '.' {
-            match do_meta_command(&buf) {
-                MetaCommandResult::Success => continue,
-                MetaCommandResult::UnrecognizedCommand => {
-                    println!("Unrecognized command '{}'.", buf);
-                    continue;
-                }
-            }
+            do_meta_command(&buf)
+                .unwrap_or_else(|err| println!("{}: Unrecognized command '{}'", err, buf))
         }
-        let (statement, prepare_result) = prepare_statement(&buf);
-        match prepare_result {
-            PrepareResult::Success => (),
-            PrepareResult::UnrecognizedCommand => {
-                println!("Unrecognized keyword at start of '{}'.", buf);
+        match prepare_statement(&buf) {
+            Ok(statement) => {
+                execute_statement(statement);
+                println!("Executed");
+            }
+            Err(err) => {
+                println!("{}: Unrecognized command '{}'", err, buf);
                 continue;
             }
         }
-        execute_statement(statement);
-        println!("Executed.");
     }
 }
 
-enum MetaCommandResult {
-    Success,
-    UnrecognizedCommand,
-}
-
-enum PrepareResult {
-    Success,
-    UnrecognizedCommand,
-}
-
-fn do_meta_command(input: &String) -> MetaCommandResult {
+fn do_meta_command(input: &String) -> Result<(), String> {
     if input == ".exit" {
         process::exit(0);
     }
-    MetaCommandResult::UnrecognizedCommand
+    Err("Unrecognized Meta Command".to_string())
 }
 
 enum StatementType {
@@ -54,38 +39,84 @@ enum StatementType {
     Select,
 }
 
-struct Statement {
-    statement_type: StatementType,
+struct Row {
+    id: u32,
+    username: String,
+    email: String,
 }
 
-fn prepare_statement(input: &String) -> (Statement, PrepareResult) {
+struct Statement {
+    statement_type: StatementType,
+    row_to_insert: Option<Row>,
+}
+
+fn parse_insert_statement(input: &String) -> Result<(u32, String, String), String> {
+    let mut words = input.split_whitespace();
+    match words.next() {
+        Some(x) => {
+            if x != "insert" {
+                Err("First word isn't insert")
+            } else {
+                Ok(())
+            }
+        }
+        None => Err("not find any word in input"),
+    }?;
+    let mut id: u32 = 0;
+    match words.next() {
+        Some(x) => {
+            id = x.parse::<u32>().map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        None => Err("not find second word"),
+    }?;
+    let mut username: String = "".to_string();
+    match words.next() {
+        Some(x) => {
+            username = x.to_string();
+            Ok(())
+        }
+        None => Err("not find thrid word"),
+    }?;
+    let mut email: String = "".to_string();
+    match words.next() {
+        Some(x) => {
+            email = x.to_string();
+            Ok(())
+        }
+        None => Err("not find 4nd word"),
+    }?;
+    match words.next() {
+        Some(x) => Err(format!("unexpect word {} as last", x)),
+        None => Ok(()),
+    }?;
+    Ok((id, username, email))
+}
+
+fn prepare_statement(input: &String) -> Result<Statement, String> {
     if input.starts_with("insert") {
-        return (
-            Statement {
-                statement_type: StatementType::Insert,
-            },
-            PrepareResult::Success,
-        );
+        let (id, username, email) = parse_insert_statement(input)?;
+        return Ok(Statement {
+            statement_type: StatementType::Insert,
+            row_to_insert: Some(Row {
+                id: id,
+                username: username,
+                email: email,
+            }),
+        });
     }
     if input.starts_with("select") {
-        return (
-            Statement {
-                statement_type: StatementType::Select,
-            },
-            PrepareResult::Success,
-        );
+        return Ok(Statement {
+            statement_type: StatementType::Select,
+            row_to_insert: None,
+        });
     }
-    return (
-        Statement {
-            statement_type: StatementType::Insert,
-        },
-        PrepareResult::UnrecognizedCommand,
-    );
+    Err("Unrecognized command".to_string())
 }
 
 fn execute_statement(statement: Statement) {
     match statement.statement_type {
-        StatementType::Insert => println!("This is where we would do an insert."),
-        StatementType::Select => println!("This is where we would do an select."),
+        StatementType::Insert => println!("This is where we would do an insert"),
+        StatementType::Select => println!("This is where we would do an select"),
     }
 }
