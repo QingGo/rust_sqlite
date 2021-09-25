@@ -21,11 +21,10 @@ fn main() -> Result<(), String> {
         match prepare_statement(&buf) {
             Ok(statement) => {
                 execute_statement(&statement, &mut table)
-                    .unwrap_or_else(|err| println!("{}: Unrecognized command '{}'", err, buf));
-                println!("Executed");
+                    .map_or_else(|err| println!("{}", err), |_| println!("Executed"));
             }
             Err(err) => {
-                println!("{}: Unrecognized command '{}'", err, buf);
+                println!("{}", err);
                 continue;
             }
         }
@@ -67,11 +66,24 @@ fn serialize_row(source: &Row, row: &mut [u8]) {
         .copy_from_slice(source.email.as_bytes());
 }
 
+fn read_string_from_slice(source: &[u8]) -> String {
+    let mut temp_vec: Vec<u8> = Vec::new();
+    // if not include \x00, all byte in slice will be used to generate the string, which can save one byte.
+    for byte in source.iter() {
+        if *byte == 0x00 {
+            break;
+        }
+        temp_vec.push(*byte)
+    }
+    String::from_utf8(temp_vec).unwrap()
+}
+
 fn deserialize_row(source: &[u8]) -> Row {
     let id = u32::from_be_bytes(source[ID_OFFSET..USERNAME_OFFSET].try_into().unwrap());
-    // it seem that last \x00 in vector will be the end of string
-    let username = String::from_utf8(source[USERNAME_OFFSET..EMAIL_OFFSET].to_vec()).unwrap();
-    let email = String::from_utf8(source[EMAIL_OFFSET..ROW_SIZE].to_vec()).unwrap();
+    // String::from_utf8 do not take \x00 as the end of string.
+    // even result string have \x00, \x00 is unseeable in terminal
+    let username = read_string_from_slice(&source[USERNAME_OFFSET..EMAIL_OFFSET]);
+    let email = read_string_from_slice(&source[EMAIL_OFFSET..ROW_SIZE].to_vec());
     return Row {
         id: id,
         username: username,
@@ -155,6 +167,10 @@ fn parse_insert_statement(input: &String) -> Result<(u32, String, String), Strin
 fn prepare_statement(input: &String) -> Result<Statement, String> {
     if input.starts_with("insert") {
         let (id, username, email) = parse_insert_statement(input)?;
+        // add length check
+        if username.len() > COLUMN_USERNAME_SIZE || email.len() > COLUMN_EMAIL_SIZE {
+            return Err("String is too long".to_string());
+        }
         return Ok(Statement {
             statement_type: StatementType::Insert,
             row_to_insert: Some(Row {
