@@ -17,9 +17,15 @@ def run_script(proc: Popen[bytes], commands: List[str]):
 
 @given("open rust_sqlite binary")
 def step_impl(context):
-    proc = Popen(["./target/debug/rust_sqlite"],
-                 stdin=PIPE, stdout=PIPE)
-    context.proc = proc
+    context.proc = Popen(["./target/debug/rust_sqlite"],
+                         stdin=PIPE, stdout=PIPE)
+
+
+@when("reopen rust_sqlite binary")
+def step_impl(context):
+    context.proc.kill()
+    context.proc = Popen(["./target/debug/rust_sqlite"],
+                         stdin=PIPE, stdout=PIPE)
 
 
 @when("execute some sql commands")

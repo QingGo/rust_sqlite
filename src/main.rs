@@ -1,11 +1,22 @@
 use std::cmp::min;
 use std::convert::TryInto;
+use std::env;
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
+use std::io::SeekFrom;
 use std::io::{self, Write};
 use std::mem::size_of;
 use std::process;
 
 fn main() -> Result<(), String> {
-    let mut table = new_table();
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        return Err("Must supply a database filename".to_string());
+    }
+    let filename = &args[1];
+
+    let mut table = new_table(filename)?;
     let mut buf = String::new();
     loop {
         buf.clear();
@@ -15,8 +26,10 @@ fn main() -> Result<(), String> {
         buf = buf.trim().to_string();
         // execute meta command
         if buf.len() > 0 && buf.chars().nth(0).unwrap() == '.' {
-            do_meta_command(&buf)
-                .unwrap_or_else(|err| println!("{}: Unrecognized command '{}'", err, buf))
+            do_meta_command(&buf, table)
+                .unwrap_or_else(|err| println!("{}: Unrecognized command '{}'", err, buf));
+            // moved table in loop, need break or compiler will complain
+            break;
         }
         match prepare_statement(&buf) {
             Ok(statement) => {
@@ -29,10 +42,13 @@ fn main() -> Result<(), String> {
             }
         }
     }
+    Ok(())
 }
 
-fn do_meta_command(input: &String) -> Result<(), String> {
+fn do_meta_command(input: &String, mut table: Table) -> Result<(), String> {
     if input == ".exit" {
+        close_table(&mut table)?;
+        free_table(table);
         process::exit(0);
     }
     Err("Unrecognized Meta Command".to_string())
@@ -98,21 +114,130 @@ const TABLE_MAX_ROWS: usize = ROWS_PER_PAGE * TABLE_MAX_PAGES;
 
 struct Table {
     num_rows: usize,
-    pages: [[u8; PAGE_SIZE]; TABLE_MAX_PAGES],
+    // pages: [[u8; PAGE_SIZE]; TABLE_MAX_PAGES],
+    pager: Pager,
 }
 
-fn new_table() -> Table {
-    return Table {
-        num_rows: 0,
-        pages: [[0; PAGE_SIZE]; TABLE_MAX_PAGES],
-    };
+fn new_table(filename: &String) -> Result<Table, String> {
+    let (pager, row_num) = new_pager(filename)?;
+    Ok(Table {
+        num_rows: row_num,
+        pager: pager,
+    })
 }
 
-fn row_slot(table: &mut Table, row_num: usize) -> &mut [u8] {
+fn close_table(table: &mut Table) -> Result<(), String> {
+    // flush full pages
+    let num_full_pages = table.num_rows / ROWS_PER_PAGE;
+    for i in 0..num_full_pages {
+        match table.pager.pages[i] {
+            None => continue,
+            Some(_) => {
+                table.pager.page_flush(i, PAGE_SIZE)?;
+            }
+        }
+    }
+    // flush partial page
+    let num_additional_rows = table.num_rows % ROWS_PER_PAGE;
+    if num_additional_rows > 0 {
+        let page_num = num_full_pages;
+        table.pager.pages[page_num].map(|_| {
+            table
+                .pager
+                .page_flush(page_num, num_additional_rows * ROW_SIZE)
+        });
+    }
+    Ok(())
+}
+
+fn free_table(table: Table) {
+    // Files are automatically closed when they go out of scope.
+    let _ = table;
+}
+
+struct Pager {
+    file: File,
+    file_length: usize,
+    pages: [Option<[u8; PAGE_SIZE]>; TABLE_MAX_PAGES],
+}
+
+fn new_pager(path: &str) -> Result<(Pager, usize), String> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    let file_length = file.metadata().map_err(|e| e.to_string())?.len();
+    let num_rows = file_length as usize / ROW_SIZE;
+    let pages = [None::<[u8; PAGE_SIZE]>; TABLE_MAX_PAGES];
+    Ok((
+        Pager {
+            file: file,
+            file_length: file_length as usize,
+            pages: pages,
+        },
+        num_rows,
+    ))
+}
+
+impl Pager {
+    fn get_page(&mut self, page_num: usize) -> Result<&mut [u8], String> {
+        if page_num > TABLE_MAX_PAGES {
+            return Err(format!(
+                "Tried to fetch page number out of bounds. {} > {}",
+                page_num, TABLE_MAX_PAGES
+            ));
+        }
+
+        let mut new_page: [u8; PAGE_SIZE];
+        match self.pages[page_num] {
+            Some(_) => {}
+            None => {
+                new_page = [0; PAGE_SIZE];
+                // find how many page in file
+                let mut num_pages = self.file_length / PAGE_SIZE;
+                if self.file_length % PAGE_SIZE != 0 {
+                    num_pages += 1
+                }
+                // read from file
+                if page_num <= num_pages {
+                    self.file
+                        .seek(SeekFrom::Start((page_num * PAGE_SIZE) as u64))
+                        .map_err(|e| format!("seek file page error: {}", e))?;
+                    self.file
+                        .read(&mut new_page)
+                        .map_err(|e| format!("read file page error: {}", e))?;
+                }
+                // cache of alloc
+                self.pages[page_num] = Some(new_page);
+            }
+        }
+        return Ok(self.pages[page_num].as_mut().unwrap());
+    }
+
+    fn page_flush(&mut self, page_num: usize, size: usize) -> Result<(), String> {
+        match self.pages[page_num] {
+            None => return Err("Tried to flush null page".to_string()),
+            Some(page) => {
+                self.file
+                    .seek(SeekFrom::Start((page_num * PAGE_SIZE) as u64))
+                    .map_err(|e| format!("seek file page error: {}", e))?;
+                self.file
+                    .write(&page[..size])
+                    .map_err(|e| format!("write file page error: {}", e))?;
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn row_slot(table: &mut Table, row_num: usize) -> Result<&mut [u8], String> {
     let page_num = row_num / ROWS_PER_PAGE;
     let row_offset = row_num % ROWS_PER_PAGE;
     let byte_offset = row_offset * ROW_SIZE;
-    &mut table.pages[page_num][byte_offset..]
+    let page = table.pager.get_page(page_num)?;
+    Ok(&mut page[byte_offset..])
 }
 
 struct Statement {
@@ -206,15 +331,15 @@ fn execute_insert(statement: &Statement, table: &mut Table) -> Result<(), String
     }
     serialize_row(
         &statement.row_to_insert.as_ref().unwrap(),
-        row_slot(table, table.num_rows),
+        row_slot(table, table.num_rows)?,
     );
     table.num_rows += 1;
     Ok(())
 }
 
-fn execute_select(statement: &Statement, table: &mut Table) -> Result<(), String> {
+fn execute_select(_: &Statement, table: &mut Table) -> Result<(), String> {
     for i in 0..table.num_rows {
-        let row = deserialize_row(row_slot(table, i));
+        let row = deserialize_row(row_slot(table, i)?);
         println!("({}, {}, {})", row.id, row.username, row.email);
     }
     Ok(())

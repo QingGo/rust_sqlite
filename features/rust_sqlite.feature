@@ -32,3 +32,28 @@ Feature: Check if rust_sqlite run porperly
     Given open rust_sqlite binary
     When inserting strings that are longer than the maximum length
     Then get string is too long error
+
+  Scenario: keeps data after closing connection
+    Given open rust_sqlite binary
+    When execute some sql commands
+      """
+      insert 1 user1 person1@example.com
+      .exit
+      """
+    Then get expected stdout
+      """
+      db > Executed
+      db >
+      """
+    When reopen rust_sqlite binary
+    And execute some sql commands
+      """
+      select
+      .exit
+      """
+    Then get expected stdout
+      """
+      db > (1, user1, person1@example.com)
+      Executed
+      db >
+      """
