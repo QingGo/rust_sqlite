@@ -1,8 +1,12 @@
 # -- FILE: features/steps/example_steps.py
-import os
-from subprocess import PIPE, Popen, STDOUT, TimeoutExpired
+from subprocess import PIPE, Popen
 from typing import List
-from behave import given, when, then, step
+from behave import given, when, then
+
+
+def del_database(db_name="default.db"):
+    commands = ["rm", db_name]
+    Popen(commands, stdin=PIPE, stdout=PIPE)
 
 
 def run_script(proc: Popen[bytes], commands: List[str]):
@@ -15,17 +19,32 @@ def run_script(proc: Popen[bytes], commands: List[str]):
     return results
 
 
+def open_sqlite(command=None):
+    commands = ["./target/debug/rust_sqlite"]
+    if command is not None:
+        commands.append(command.strip())
+    else:
+        commands.append("default.db")
+    return Popen(commands, stdin=PIPE, stdout=PIPE)
+
+
 @given("open rust_sqlite binary")
 def step_impl(context):
-    context.proc = Popen(["./target/debug/rust_sqlite"],
-                         stdin=PIPE, stdout=PIPE)
+    context.proc = open_sqlite(context.text)
+
+
+@given("clean database")
+def step_impl(context):
+    if context.text is not None:
+        del_database(context.text)
+    else:
+        del_database()
 
 
 @when("reopen rust_sqlite binary")
 def step_impl(context):
     context.proc.kill()
-    context.proc = Popen(["./target/debug/rust_sqlite"],
-                         stdin=PIPE, stdout=PIPE)
+    context.proc = open_sqlite(context.text)
 
 
 @when("execute some sql commands")
@@ -81,7 +100,7 @@ def step_impl(context):
         "Executed",
         "db >"
     ]
-    print(context.results)
+    print(f"actual results is : {context.results}")
     assert context.results == expected_results
 
 
@@ -106,5 +125,5 @@ def step_impl(context):
         "db > Executed",
         "db >"
     ]
-    print(context.results)
+    # print(context.results)
     assert context.results == expected_results

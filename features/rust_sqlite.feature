@@ -22,7 +22,6 @@ Feature: Check if rust_sqlite run porperly
     When insert many rows
     Then get expected error
 
-
   Scenario: allows inserting strings that are the maximum length
     Given open rust_sqlite binary
     When inserting strings that are the maximum length

@@ -183,7 +183,7 @@ fn new_pager(path: &str) -> Result<(Pager, usize), String> {
 
 impl Pager {
     fn get_page(&mut self, page_num: usize) -> Result<&mut [u8], String> {
-        if page_num > TABLE_MAX_PAGES {
+        if page_num >= TABLE_MAX_PAGES {
             return Err(format!(
                 "Tried to fetch page number out of bounds. {} > {}",
                 page_num, TABLE_MAX_PAGES
