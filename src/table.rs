@@ -46,3 +46,35 @@ pub fn free_table(table: Table) {
     // Files are automatically closed when they go out of scope.
     let _ = table;
 }
+
+impl Table {
+    pub fn row_slot(&mut self, cursor: &Cursor) -> Result<&mut [u8], String> {
+        let row_num = cursor.row_num;
+        let page_num = row_num / ROWS_PER_PAGE;
+        let row_offset = row_num % ROWS_PER_PAGE;
+        let byte_offset = row_offset * ROW_SIZE;
+        let page = self.pager.get_page(page_num)?;
+        Ok(&mut page[byte_offset..])
+    }
+    pub fn table_start(&self) -> Cursor {
+        Cursor { row_num: 0 }
+    }
+    pub fn table_end(&self) -> Cursor {
+        Cursor {
+            row_num: self.num_rows,
+        }
+    }
+    pub fn is_end_of_table(&self, cursor: &Cursor) -> bool {
+        cursor.row_num == self.num_rows
+    }
+}
+
+pub struct Cursor {
+    row_num: usize,
+}
+
+impl Cursor {
+    pub fn cursor_advance(&mut self) {
+        self.row_num += 1;
+    }
+}

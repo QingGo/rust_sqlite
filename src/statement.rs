@@ -51,29 +51,24 @@ impl Statement {
         if table.num_rows >= TABLE_MAX_ROWS {
             return Err(format!("table is full of rows: {}", TABLE_MAX_ROWS));
         }
+        let cursor = table.table_end();
         serialize_row(
             &self.row_to_insert.as_ref().unwrap(),
-            row_slot(table, table.num_rows)?,
+            table.row_slot(&cursor)?,
         );
         table.num_rows += 1;
         Ok(())
     }
 
     fn execute_select(&self, table: &mut Table) -> Result<(), String> {
-        for i in 0..table.num_rows {
-            let row = deserialize_row(row_slot(table, i)?);
+        let mut cursor = table.table_start();
+        while !table.is_end_of_table(&cursor) {
+            let row = deserialize_row(table.row_slot(&cursor)?);
             println!("({}, {}, {})", row.id, row.username, row.email);
+            cursor.cursor_advance();
         }
         Ok(())
     }
-}
-
-fn row_slot(table: &mut Table, row_num: usize) -> Result<&mut [u8], String> {
-    let page_num = row_num / ROWS_PER_PAGE;
-    let row_offset = row_num % ROWS_PER_PAGE;
-    let byte_offset = row_offset * ROW_SIZE;
-    let page = table.pager.get_page(page_num)?;
-    Ok(&mut page[byte_offset..])
 }
 
 // do we have a better way to parse statement without repeat code?
