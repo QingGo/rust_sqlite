@@ -1,5 +1,5 @@
-use crate::row::*;
-use crate::table::*;
+use super::row::*;
+use super::table::*;
 
 enum StatementType {
     Insert,
@@ -37,7 +37,7 @@ pub fn prepare_statement(input: &String) -> Result<Statement, String> {
 }
 
 impl Statement {
-    pub fn execute_statement(&self, table: &mut Table) -> Result<(), String> {
+    pub fn execute_statement(self, table: &mut Table) -> Result<(), String> {
         match self.statement_type {
             StatementType::Insert => {
                 return self.execute_insert(table);
@@ -47,23 +47,17 @@ impl Statement {
             }
         }
     }
-    fn execute_insert(&self, table: &mut Table) -> Result<(), String> {
-        if table.num_rows >= TABLE_MAX_ROWS {
-            return Err(format!("table is full of rows: {}", TABLE_MAX_ROWS));
-        }
-        let cursor = table.table_end();
-        serialize_row(
-            &self.row_to_insert.as_ref().unwrap(),
-            table.row_slot(&cursor)?,
-        );
-        table.num_rows += 1;
+    fn execute_insert(self, table: &mut Table) -> Result<(), String> {
+        // only use first node as leaf node
+        let row = self.row_to_insert.unwrap();
+        table.insert_row(row)?;
         Ok(())
     }
 
     fn execute_select(&self, table: &mut Table) -> Result<(), String> {
         let mut cursor = table.table_start();
         while !table.is_end_of_table(&cursor) {
-            let row = deserialize_row(table.row_slot(&cursor)?);
+            let row = table.cursor_value(&cursor).ok_or("row not found")?;
             println!("({}, {}, {})", row.id, row.username, row.email);
             cursor.cursor_advance();
         }

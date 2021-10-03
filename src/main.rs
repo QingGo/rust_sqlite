@@ -1,12 +1,10 @@
-mod pager;
-mod row;
-mod statement;
-mod table;
+mod components;
+mod util;
 
-use statement::prepare_statement;
+use components::statement::prepare_statement;
+use components::table::*;
 use std::env;
 use std::io::{self, Write};
-use table::*;
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
@@ -31,20 +29,27 @@ fn main() -> Result<(), String> {
                 free_table(table);
                 // moved table in loop, need break or compiler will complain
                 break;
+            } else if buf == ".btree" {
+                println!("Tree:");
+                table.pager.get_page(0).unwrap().print();
+            } else if buf == ".constants" {
+                println!("Constants:");
+                print_constants();
             } else {
                 println!("Unrecognized Meta Command");
             }
-        }
-        // execute normal statement
-        match prepare_statement(&buf) {
-            Ok(statement) => {
-                statement
-                    .execute_statement(&mut table)
-                    .map_or_else(|err| println!("{}", err), |_| println!("Executed"));
-            }
-            Err(err) => {
-                println!("{}", err);
-                continue;
+        } else {
+            // execute normal statement
+            match prepare_statement(&buf) {
+                Ok(statement) => {
+                    statement
+                        .execute_statement(&mut table)
+                        .map_or_else(|err| println!("{}", err), |_| println!("Executed"));
+                }
+                Err(err) => {
+                    println!("{}", err);
+                    continue;
+                }
             }
         }
     }

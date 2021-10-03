@@ -73,8 +73,7 @@ def step_impl(context):
 
 @then("get expected error")
 def step_impl(context):
-    assert 'db > table is full of rows: 1400'.startswith(
-        "db > table is full of rows")
+    print(context.results)
     assert context.results[-2].startswith("db > table is full of rows")
 
 

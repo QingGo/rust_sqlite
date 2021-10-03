@@ -17,14 +17,6 @@ pub struct Row {
     pub email: String,
 }
 
-pub fn serialize_row(source: &Row, row: &mut [u8]) {
-    row[ID_OFFSET..USERNAME_OFFSET].copy_from_slice(&source.id.to_be_bytes());
-    row[USERNAME_OFFSET..min(EMAIL_OFFSET, USERNAME_OFFSET + source.username.len())]
-        .copy_from_slice(source.username.as_bytes());
-    row[EMAIL_OFFSET..min(ROW_SIZE, EMAIL_OFFSET + source.email.len())]
-        .copy_from_slice(source.email.as_bytes());
-}
-
 pub fn deserialize_row(source: &[u8]) -> Row {
     let id = u32::from_be_bytes(source[ID_OFFSET..USERNAME_OFFSET].try_into().unwrap());
     // String::from_utf8 do not take \x00 as the end of string.
@@ -36,6 +28,16 @@ pub fn deserialize_row(source: &[u8]) -> Row {
         username: username,
         email: email,
     };
+}
+
+impl Row {
+    pub fn serialize_row(&self, row: &mut [u8]) {
+        row[ID_OFFSET..USERNAME_OFFSET].copy_from_slice(&self.id.to_be_bytes());
+        row[USERNAME_OFFSET..min(EMAIL_OFFSET, USERNAME_OFFSET + self.username.len())]
+            .copy_from_slice(self.username.as_bytes());
+        row[EMAIL_OFFSET..min(ROW_SIZE, EMAIL_OFFSET + self.email.len())]
+            .copy_from_slice(self.email.as_bytes());
+    }
 }
 
 fn read_string_from_slice(source: &[u8]) -> String {
